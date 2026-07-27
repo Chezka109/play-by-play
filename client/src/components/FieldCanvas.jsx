@@ -13,7 +13,7 @@ function cssVar(name, fallback) {
 
 function inferScene(play) {
     const parsed = play?.parsed || {}
-    const yards = Number.isFinite(parsed.yards) ? parsed.yards : 0
+    const yards = Number.isFinite(parsed.yards) ? parsed.yards : null
     const yardLineValue = Number(play?.yardLine)
 
     return {
@@ -153,6 +153,8 @@ function drawPath(ctx, { start, end, progress }) {
 export function FieldCanvas({ play }) {
     const canvasRef = useRef(null)
     const scene = useMemo(() => inferScene(play), [play])
+    const hasPlay = Boolean(play?.id)
+    const { type, direction, yards, yardLine, distance } = scene
 
     useEffect(() => {
         const canvas = canvasRef.current
@@ -161,18 +163,29 @@ export function FieldCanvas({ play }) {
 
         let animationFrame = null
         let startTime = null
-        let dimensions = { width: 1, height: 1 }
+        let dimensions = { width: 1, height: 1, density: 1 }
         let disposed = false
+        const shouldAnimate =
+            hasPlay && ['pass', 'interception', 'incomplete', 'rush', 'sack'].includes(type)
+        let currentProgress = shouldAnimate ? 0 : 1
 
         function resize() {
             const rect = canvas.getBoundingClientRect()
             const width = Math.max(1, Math.floor(rect.width))
             const height = Math.max(1, Math.floor(rect.height))
             const density = window.devicePixelRatio || 1
+            if (
+                dimensions.width === width &&
+                dimensions.height === height &&
+                dimensions.density === density
+            ) {
+                return false
+            }
             canvas.width = Math.floor(width * density)
             canvas.height = Math.floor(height * density)
             context.setTransform(density, 0, 0, density, 0, 0)
-            dimensions = { width, height }
+            dimensions = { width, height, density }
+            return true
         }
 
         function geometry() {
@@ -180,12 +193,12 @@ export function FieldCanvas({ play }) {
             const endZoneWidth = width / 12
             const playingWidth = width - endZoneWidth * 2
             const lineOfScrimmageX =
-                endZoneWidth + (scene.yardLine / 100) * playingWidth
+                endZoneWidth + (yardLine / 100) * playingWidth
             const firstDownX =
-                scene.distance == null
+                distance == null
                     ? null
                     : clamp(
-                          lineOfScrimmageX + (scene.distance / 100) * playingWidth,
+                          lineOfScrimmageX + (distance / 100) * playingWidth,
                           endZoneWidth,
                           endZoneWidth + playingWidth
                       )
@@ -203,7 +216,7 @@ export function FieldCanvas({ play }) {
             } = geometry()
             drawField(context, { width, height, lineOfScrimmageX, firstDownX })
 
-            if (!play) return
+            if (!hasPlay) return
 
             const offense = cssVar('--field-offense', '#f8fafc')
             const defense = cssVar('--field-defense', '#fb7185')
@@ -217,16 +230,16 @@ export function FieldCanvas({ play }) {
                 y: height * 0.68,
             }
             const receiver = {
-                x: clamp(lineOfScrimmageX + playingWidth * 0.075, endZoneWidth, width - endZoneWidth),
+                x: clamp(lineOfScrimmageX + playingWidth * 0.02, endZoneWidth, width - endZoneWidth),
                 y:
-                    scene.direction === 'left'
+                    direction === 'left'
                         ? height * 0.3
-                        : scene.direction === 'right'
+                        : direction === 'right'
                           ? height * 0.7
                           : height * 0.48,
             }
             const endX = clamp(
-                lineOfScrimmageX + (scene.yards / 100) * playingWidth,
+                lineOfScrimmageX + ((yards || 0) / 100) * playingWidth,
                 endZoneWidth,
                 endZoneWidth + playingWidth
             )
@@ -245,9 +258,16 @@ export function FieldCanvas({ play }) {
                     ? 2 * progress * progress
                     : 1 - Math.pow(-2 * progress + 2, 2) / 2
 
-            if (['pass', 'interception', 'incomplete'].includes(scene.type)) {
+            if (['pass', 'interception', 'incomplete'].includes(type)) {
                 const target = {
-                    x: scene.type === 'incomplete' ? receiver.x : Math.max(receiver.x, endX),
+                    x:
+                        ['interception', 'incomplete'].includes(type) || yards == null
+                            ? clamp(
+                                  lineOfScrimmageX + playingWidth * 0.1,
+                                  endZoneWidth,
+                                  endZoneWidth + playingWidth
+                              )
+                            : endX,
                     y: receiver.y,
                 }
                 const receiverPosition = {
@@ -259,24 +279,31 @@ export function FieldCanvas({ play }) {
                 drawPlayer(context, { ...receiverPosition, radius, fill: offense })
                 drawPath(context, {
                     start: quarterback,
-                    end: receiver,
+                    end: target,
                     progress: clamp(progress / 0.68, 0, 1),
                 })
-            } else {
-                const carrierStart = scene.type === 'sack' ? quarterback : runner
+            } else if (['rush', 'sack'].includes(type)) {
+                const carrierStart = type === 'sack' ? quarterback : runner
                 const carrierEnd = { x: endX, y: carrierStart.y }
                 const carrier = {
                     x: carrierStart.x + (carrierEnd.x - carrierStart.x) * eased,
                     y: carrierStart.y,
                 }
-                drawPlayer(context, { ...quarterback, radius, fill: offense })
-                drawPlayer(context, { ...runner, radius: radius * 0.85, fill: offense })
+                if (type === 'sack') {
+                    drawPlayer(context, { ...runner, radius: radius * 0.85, fill: offense })
+                } else {
+                    drawPlayer(context, { ...quarterback, radius, fill: offense })
+                }
                 drawPlayer(context, { ...carrier, radius: radius * 1.08, fill: offense })
                 drawPath(context, {
                     start: carrierStart,
                     end: carrierEnd,
                     progress: eased,
                 })
+            } else {
+                drawPlayer(context, { ...quarterback, radius, fill: offense })
+                drawPlayer(context, { ...runner, radius: radius * 0.85, fill: offense })
+                drawPlayer(context, { ...receiver, radius, fill: offense })
             }
         }
 
@@ -284,17 +311,21 @@ export function FieldCanvas({ play }) {
             if (disposed) return
             if (startTime == null) startTime = timestamp
             const progress = clamp((timestamp - startTime) / 1350, 0, 1)
-            render(progress)
+            currentProgress = progress
+            render(currentProgress)
             if (progress < 1) animationFrame = requestAnimationFrame(animate)
         }
 
         resize()
-        render(play ? 0 : 1)
-        if (play) animationFrame = requestAnimationFrame(animate)
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        if (reduceMotion) currentProgress = 1
+        render(currentProgress)
+        if (shouldAnimate && !reduceMotion) {
+            animationFrame = requestAnimationFrame(animate)
+        }
 
         const observer = new ResizeObserver(() => {
-            resize()
-            render(1)
+            if (resize()) render(currentProgress)
         })
         observer.observe(canvas)
 
@@ -303,7 +334,7 @@ export function FieldCanvas({ play }) {
             observer.disconnect()
             if (animationFrame) cancelAnimationFrame(animationFrame)
         }
-    }, [play, scene])
+    }, [direction, distance, hasPlay, type, yardLine, yards])
 
     return (
         <figure className="overflow-hidden rounded-[1.5rem] border border-emerald-950/20 bg-emerald-950 shadow-[0_18px_60px_rgba(7,27,20,0.16)]">
