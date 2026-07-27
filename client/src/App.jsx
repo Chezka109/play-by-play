@@ -6,7 +6,7 @@ import { useGamePlays } from './hooks/useGamePlays'
 import { useNflGames } from './hooks/useNflGames'
 
 function App() {
-  const games = useNflGames({ pollMs: 30000, daysBack: 7 })
+  const games = useNflGames({ pollMs: 30000 })
 
   const {
     eventId,
@@ -55,6 +55,7 @@ function App() {
         <div className="mb-4">
           <GamePicker
             liveGames={games.live}
+            upcomingGames={games.upcoming}
             previousGames={games.previous}
             selectedEventId={eventId}
             onSelectEventId={(id) => id && setEventId(id)}

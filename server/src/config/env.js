@@ -30,6 +30,17 @@ const env = {
     espnSummaryBaseUrl:
         process.env.ESPN_SUMMARY_BASE_URL ||
         'https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=',
+    espnScoreboardBaseUrl:
+        process.env.ESPN_SCOREBOARD_BASE_URL ||
+        'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard',
+    providerTimeoutMs: requireNumber(process.env.PROVIDER_TIMEOUT_MS, {
+        name: 'PROVIDER_TIMEOUT_MS',
+        fallback: 8000,
+    }),
+    scheduleCacheMs: requireNumber(process.env.SCHEDULE_CACHE_MS, {
+        name: 'SCHEDULE_CACHE_MS',
+        fallback: 20000,
+    }),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
     explainOnIngest: requireBoolean(process.env.EXPLAIN_ON_INGEST, {

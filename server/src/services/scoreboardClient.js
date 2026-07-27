@@ -1,10 +1,11 @@
 const axios = require('axios');
+const { env } = require('../config/env');
 const { TtlCache } = require('./cache');
 
-const SCOREBOARD_URL =
-    'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
-
-const seasonCache = new TtlCache({ maxSize: 50, ttlMs: 1000 * 60 * 60 * 12 });
+const seasonCache = new TtlCache({
+    maxSize: 12,
+    ttlMs: env.scheduleCacheMs,
+});
 
 function toArray(value) {
     if (!value) return [];
@@ -12,178 +13,198 @@ function toArray(value) {
 }
 
 function safeGetCompetition(event) {
-    const comps = toArray(event?.competitions);
-    return comps[0] || null;
+    return toArray(event?.competitions)[0] || null;
+}
+
+function mapCompetitor(competitor) {
+    const team = competitor?.team || {};
+
+    return {
+        id: team.id ? String(team.id) : null,
+        abbreviation: team.abbreviation ?? null,
+        displayName: team.displayName ?? team.name ?? null,
+        shortDisplayName: team.shortDisplayName ?? team.name ?? null,
+        logo: toArray(team.logos)[0]?.href ?? team.logo ?? null,
+        homeAway: competitor?.homeAway ?? null,
+        score: competitor?.score ?? null,
+        winner: Boolean(competitor?.winner),
+    };
 }
 
 function mapEventToGame(event) {
     const competition = safeGetCompetition(event);
     const status = competition?.status || event?.status || {};
     const type = status?.type || {};
-
-    const state = type?.state || null; // 'pre' | 'in' | 'post'
-    const detail = type?.detail || null;
-    const completed = Boolean(type?.completed);
+    const competitors = toArray(competition?.competitors).map(mapCompetitor);
+    const homeTeam = competitors.find((team) => team.homeAway === 'home') || null;
+    const awayTeam = competitors.find((team) => team.homeAway === 'away') || null;
+    const broadcasts = toArray(competition?.broadcasts).flatMap((broadcast) =>
+        toArray(broadcast?.names)
+    );
 
     return {
         id: String(event?.id ?? ''),
         name: event?.name ?? competition?.name ?? null,
         shortName: event?.shortName ?? competition?.shortName ?? null,
         date: event?.date ?? competition?.date ?? null,
+        seasonYear: event?.season?.year ?? null,
+        seasonType: event?.season?.type ?? null,
+        seasonSlug: event?.season?.slug ?? null,
+        week: event?.week?.number ?? null,
         status: {
-            state,
-            detail,
-            completed,
+            state: type?.state ?? null,
+            name: type?.name ?? null,
+            detail: type?.detail ?? type?.shortDetail ?? null,
+            shortDetail: type?.shortDetail ?? type?.detail ?? null,
+            completed: Boolean(type?.completed),
+            clock: status?.displayClock ?? null,
+            period: status?.period ?? null,
         },
+        teams: {
+            home: homeTeam,
+            away: awayTeam,
+        },
+        broadcasts: [...new Set(broadcasts.filter(Boolean))],
+        venue: competition?.venue
+            ? {
+                  name: competition.venue.fullName ?? null,
+                  city: competition.venue.address?.city ?? null,
+                  state: competition.venue.address?.state ?? null,
+                  country: competition.venue.address?.country ?? null,
+                  indoor: competition.venue.indoor ?? null,
+              }
+            : null,
     };
 }
 
 function uniqueById(games) {
-    const seen = new Set();
-    const out = [];
-    for (const g of games) {
-        if (!g?.id) continue;
-        if (seen.has(g.id)) continue;
-        seen.add(g.id);
-        out.push(g);
+    const byId = new Map();
+    for (const game of games) {
+        if (game?.id) byId.set(game.id, game);
     }
-    return out;
+    return [...byId.values()];
 }
 
-async function fetchScoreboard({ date, year, week, seasonType } = {}) {
-    const params = {};
+function sortByDateAscending(games) {
+    return games.sort((a, b) => {
+        const aDate = a.date ? Date.parse(a.date) : Number.MAX_SAFE_INTEGER;
+        const bDate = b.date ? Date.parse(b.date) : Number.MAX_SAFE_INTEGER;
+        if (aDate !== bDate) return aDate - bDate;
+        return String(a.id).localeCompare(String(b.id));
+    });
+}
+
+async function fetchScoreboard({ date, seasonYear, week, seasonType, limit = 100 } = {}) {
+    const params = { limit: String(limit) };
+
     if (date) params.dates = String(date);
-    if (year) params.year = String(year);
+    if (seasonYear) params.dates = String(seasonYear);
     if (week) params.week = String(week);
     if (seasonType) params.seasontype = String(seasonType);
 
-    const resp = await axios.get(SCOREBOARD_URL, {
+    const resp = await axios.get(env.espnScoreboardBaseUrl, {
         params,
         headers: {
+            Accept: 'application/json',
             'Accept-Encoding': 'gzip, deflate, br',
-            'User-Agent': 'play-by-play/0.1',
+            'User-Agent': 'play-by-play/1.0',
         },
-        timeout: 8000,
+        timeout: env.providerTimeoutMs,
     });
 
     return resp.data;
 }
 
-function getLastCompletedSeasonYear(now = new Date()) {
-    // Simple rule: "last completed season" is the prior calendar year.
-    // Example: Apr 2026 -> 2025 season (ended Feb 2026).
-    return now.getFullYear() - 1;
+function extractGames(scoreboardJson) {
+    const games = toArray(scoreboardJson?.events)
+        .map(mapEventToGame)
+        .filter((game) => game.id);
+    return sortByDateAscending(games);
 }
 
-async function fetchSeasonGames({ year } = {}) {
+/**
+ * ESPN's scoreboard uses `dates`, not `year`, to select a calendar year.
+ * An NFL season crosses New Year's Day, so both calendar years are fetched
+ * and the event's own season.year is used as the source of truth.
+ */
+async function fetchSeasonGames({ year, force = false } = {}) {
     const seasonYear = Number(year);
-    if (!Number.isFinite(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
+    if (!Number.isInteger(seasonYear) || seasonYear < 2000 || seasonYear > 2100) {
         throw new Error(`Invalid season year: ${year}`);
     }
 
     const cacheKey = `season:${seasonYear}`;
-    const cached = seasonCache.get(cacheKey);
-    if (cached) return cached;
-
-    const all = [];
-
-    // Regular season (18 weeks)
-    for (let week = 1; week <= 18; week++) {
-        const json = await fetchScoreboard({ year: seasonYear, week, seasonType: 2 });
-        const games = extractGames(json);
-        all.push(...games);
-        if (week >= 18) break;
+    if (!force) {
+        const cached = seasonCache.get(cacheKey);
+        if (cached) return cached;
     }
 
-    // Postseason (weeks vary; stop when we hit an empty week after we've found some)
-    let foundAnyPost = false;
-    for (let week = 1; week <= 6; week++) {
-        const json = await fetchScoreboard({ year: seasonYear, week, seasonType: 3 });
-        const games = extractGames(json);
-        if (games.length > 0) {
-            foundAnyPost = true;
-            all.push(...games);
-        } else if (foundAnyPost) {
-            break;
-        }
-    }
+    const [startYear, endYear] = await Promise.all([
+        fetchScoreboard({ seasonYear, limit: 1000 }),
+        fetchScoreboard({ seasonYear: seasonYear + 1, limit: 1000 }),
+    ]);
 
-    const games = uniqueById(all);
+    const games = uniqueById([
+        ...extractGames(startYear),
+        ...extractGames(endYear),
+    ]).filter((game) => Number(game.seasonYear) === seasonYear);
 
-    // Sort newest first for dropdown usability
-    games.sort((a, b) => {
-        const ad = a.date ? Date.parse(a.date) : 0;
-        const bd = b.date ? Date.parse(b.date) : 0;
-        if (ad !== bd) return bd - ad;
-        return String(b.id).localeCompare(String(a.id));
-    });
+    sortByDateAscending(games);
 
-    const result = { seasonYear, games };
+    const result = {
+        seasonYear,
+        games,
+        fetchedAt: new Date().toISOString(),
+        provider: 'espn',
+    };
     seasonCache.set(cacheKey, result);
     return result;
 }
 
-function extractGames(scoreboardJson) {
-    const events = toArray(scoreboardJson?.events);
-    const games = events.map(mapEventToGame).filter((g) => g.id);
-
-    // Prefer stable ordering by date, then id.
-    games.sort((a, b) => {
-        const ad = a.date ? Date.parse(a.date) : 0;
-        const bd = b.date ? Date.parse(b.date) : 0;
-        if (ad !== bd) return ad - bd;
-        return String(a.id).localeCompare(String(b.id));
-    });
-
-    return games;
+function getCurrentNflSeasonYear(now = new Date()) {
+    const month = now.getUTCMonth();
+    return month <= 1 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
 }
 
-function formatYyyyMmDd(date) {
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, '0');
-    const dd = String(date.getDate()).padStart(2, '0');
-    return `${yyyy}${mm}${dd}`;
+function getLastCompletedSeasonYear(now = new Date()) {
+    return getCurrentNflSeasonYear(now) - 1;
 }
 
-async function fetchGamesWindow({ daysBack = 7 } = {}) {
-    const n = Math.max(0, Math.min(7, Number(daysBack) || 0));
+function splitGamesByStatus(games, now = new Date()) {
+    const nowMs = now.getTime();
+    const live = [];
+    const upcoming = [];
+    const previous = [];
 
-    const all = [];
-    const today = new Date();
+    for (const game of games) {
+        const state = game.status?.state;
+        const dateMs = game.date ? Date.parse(game.date) : Number.NaN;
 
-    // ESPN sometimes returns no events for explicit dates (especially off-season),
-    // but the undated scoreboard can still include a "featured" event.
-    try {
-        const json = await fetchScoreboard();
-        all.push(...extractGames(json));
-    } catch {
-        // ignore; date-window fetches may still succeed
+        if (state === 'in') {
+            live.push(game);
+        } else if (
+            state === 'pre' &&
+            (!Number.isFinite(dateMs) || dateMs >= nowMs - 1000 * 60 * 60 * 8)
+        ) {
+            upcoming.push(game);
+        } else if (state === 'post' || game.status?.completed) {
+            previous.push(game);
+        }
     }
 
-    for (let i = 0; i <= n; i++) {
-        const d = new Date(today);
-        d.setDate(today.getDate() - i);
-        const date = formatYyyyMmDd(d);
-        const json = await fetchScoreboard({ date });
-        all.push(...extractGames(json));
-    }
+    sortByDateAscending(live);
+    sortByDateAscending(upcoming);
+    previous.sort((a, b) => Date.parse(b.date || 0) - Date.parse(a.date || 0));
 
-    const games = uniqueById(all);
-
-    const live = games.filter((g) => g.status?.state === 'in' || g.status?.state === 'pre');
-    const previous = games.filter((g) => g.status?.state === 'post' || g.status?.completed);
-
-    return {
-        live,
-        previous,
-        all: games,
-    };
+    return { live, upcoming, previous };
 }
 
 module.exports = {
-    fetchScoreboard,
     extractGames,
-    fetchGamesWindow,
+    fetchScoreboard,
     fetchSeasonGames,
+    getCurrentNflSeasonYear,
     getLastCompletedSeasonYear,
+    mapEventToGame,
+    splitGamesByStatus,
 };
