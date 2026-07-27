@@ -6,6 +6,10 @@ const seasonCache = new TtlCache({
     maxSize: 12,
     ttlMs: env.scheduleCacheMs,
 });
+const archiveCache = new TtlCache({
+    maxSize: 12,
+    ttlMs: 1000 * 60 * 60 * 12,
+});
 
 function toArray(value) {
     if (!value) return [];
@@ -135,7 +139,9 @@ async function fetchSeasonGames({ year, force = false } = {}) {
 
     const cacheKey = `season:${seasonYear}`;
     if (!force) {
-        const cached = seasonCache.get(cacheKey);
+        const targetCache =
+            seasonYear < getCurrentNflSeasonYear() ? archiveCache : seasonCache;
+        const cached = targetCache.get(cacheKey);
         if (cached) return cached;
     }
 
@@ -157,7 +163,9 @@ async function fetchSeasonGames({ year, force = false } = {}) {
         fetchedAt: new Date().toISOString(),
         provider: 'espn',
     };
-    seasonCache.set(cacheKey, result);
+    const targetCache =
+        seasonYear < getCurrentNflSeasonYear() ? archiveCache : seasonCache;
+    targetCache.set(cacheKey, result);
     return result;
 }
 

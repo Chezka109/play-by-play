@@ -2,12 +2,17 @@
     "name": "play-by-play",
     "private": true,
     "version": "0.1.0",
+    "engines": {
+        "node": ">=20.19"
+    },
     "scripts": {
         "dev": "concurrently -n server,client -c blue,green \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
         "dev:server": "npm --prefix server run dev",
         "dev:client": "npm --prefix client run dev",
-        "test": "npm --prefix server test",
+        "test": "npm --prefix server test -- --runInBand",
+        "lint": "npm --prefix client run lint",
         "build": "npm --prefix client run build",
+        "check": "npm test && npm run lint && npm run build",
         "start": "SERVE_CLIENT=true node server/src/index.js"
     },
     "devDependencies": {

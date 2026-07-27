@@ -78,7 +78,7 @@ describe('calculateNextPollDelay', () => {
     const now = Date.parse('2026-07-27T12:00:00Z');
 
     test('polls live games quickly and stops completed games', () => {
-        expect(calculateNextPollDelay({ status: { state: 'in' } }, now)).toBe(8000);
+        expect(calculateNextPollDelay({ status: { state: 'in' } }, now)).toBe(5000);
         expect(
             calculateNextPollDelay({ status: { state: 'post', completed: true } }, now)
         ).toBeNull();

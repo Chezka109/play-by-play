@@ -3,10 +3,16 @@ const crypto = require('crypto');
 
 const { parsePlayText } = require('../parsers/playParser');
 const { explanationService } = require('../services/explanationService');
+const { createRateLimiter } = require('../middleware/rateLimit');
+const { env } = require('../config/env');
 
 const router = express.Router();
+const explainRateLimit = createRateLimiter({
+    windowMs: env.explainRateLimitWindowMs,
+    max: env.explainRateLimitMax,
+});
 
-router.post('/explain-play', async (req, res, next) => {
+router.post('/explain-play', explainRateLimit, async (req, res, next) => {
     try {
         const {
             text,

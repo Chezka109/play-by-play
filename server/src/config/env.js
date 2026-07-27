@@ -19,13 +19,21 @@ function requireBoolean(value, { fallback }) {
     return fallback;
 }
 
+function requireEnum(value, { name, allowed, fallback }) {
+    const normalized = String(value || fallback).trim().toLowerCase();
+    if (!allowed.includes(normalized)) {
+        throw new Error(`Invalid value for ${name}: ${value}`);
+    }
+    return normalized;
+}
+
 const env = {
     port: requireNumber(process.env.PORT, { name: 'PORT', fallback: 3001 }),
     corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
     defaultEventId: process.env.DEFAULT_EVENT_ID || '',
     pollIntervalMs: requireNumber(process.env.POLL_INTERVAL_MS, {
         name: 'POLL_INTERVAL_MS',
-        fallback: 8000,
+        fallback: 5000,
     }),
     espnSummaryBaseUrl:
         process.env.ESPN_SUMMARY_BASE_URL ||
@@ -43,7 +51,11 @@ const env = {
     }),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     openaiModel: process.env.OPENAI_MODEL || 'gpt-5.6-sol',
-    openaiReasoningEffort: process.env.OPENAI_REASONING_EFFORT || 'low',
+    openaiReasoningEffort: requireEnum(process.env.OPENAI_REASONING_EFFORT, {
+        name: 'OPENAI_REASONING_EFFORT',
+        allowed: ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
+        fallback: 'low',
+    }),
     openaiTimeoutMs: requireNumber(process.env.OPENAI_TIMEOUT_MS, {
         name: 'OPENAI_TIMEOUT_MS',
         fallback: 15000,
@@ -59,6 +71,18 @@ const env = {
     explainOnIngest: requireBoolean(process.env.EXPLAIN_ON_INGEST, {
         fallback: true,
     }),
+    explainRateLimitMax: requireNumber(process.env.EXPLAIN_RATE_LIMIT_MAX, {
+        name: 'EXPLAIN_RATE_LIMIT_MAX',
+        fallback: 30,
+    }),
+    explainRateLimitWindowMs: requireNumber(
+        process.env.EXPLAIN_RATE_LIMIT_WINDOW_MS,
+        {
+            name: 'EXPLAIN_RATE_LIMIT_WINDOW_MS',
+            fallback: 60000,
+        }
+    ),
+    trustProxy: requireBoolean(process.env.TRUST_PROXY, { fallback: false }),
 };
 
 module.exports = { env };

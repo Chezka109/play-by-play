@@ -34,12 +34,15 @@ router.get('/nfl/games', async (req, res, next) => {
             historySeasonYear = history.seasonYear;
         }
 
+        const upcoming = groups.upcoming.slice(0, upcomingLimit);
+        const recent = previous.slice(0, previousLimit);
+
         res.json({
             ok: true,
             live: groups.live,
-            upcoming: groups.upcoming.slice(0, upcomingLimit),
-            previous: previous.slice(0, previousLimit),
-            all: [...groups.live, ...groups.upcoming, ...previous],
+            upcoming,
+            previous: recent,
+            all: [...groups.live, ...upcoming, ...recent],
             meta: {
                 provider: season.provider,
                 seasonYear,

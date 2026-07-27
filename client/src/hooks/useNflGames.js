@@ -18,7 +18,7 @@ export function useNflGames({ pollMs = 30000 } = {}) {
 
     const fetchOnce = useCallback(async () => {
         try {
-            const data = await apiFetchJson('/api/nfl/games?upcomingLimit=48&previousLimit=80')
+            const data = await apiFetchJson('/api/nfl/games?upcomingLimit=100&previousLimit=80')
             setLive((data?.live || []).map((g) => ({ ...g, label: formatOptionLabel(g) })))
             setUpcoming(
                 (data?.upcoming || []).map((g) => ({ ...g, label: formatOptionLabel(g) }))

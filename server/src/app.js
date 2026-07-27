@@ -16,6 +16,7 @@ function createApp({ gameWatcher }) {
 
     const serveClient = String(process.env.SERVE_CLIENT || '').toLowerCase() === 'true';
 
+    if (env.trustProxy) app.set('trust proxy', 1);
     app.use(helmet());
     app.use(express.json({ limit: '1mb' }));
     app.use(
