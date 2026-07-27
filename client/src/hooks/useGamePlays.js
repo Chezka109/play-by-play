@@ -72,9 +72,8 @@ export function useGamePlays({
     const [explanationVersion, setExplanationVersion] = useState(0)
     const sessionId = useMemo(getSessionId, [])
 
-    // Analysis playback: a cursor over the (chronological) play list
+    // Manual playback: keep ingesting live plays while the viewer reviews at their pace.
     const [analysisEnabled, setAnalysisEnabled] = useState(false)
-    const [analysisRunning, setAnalysisRunning] = useState(false)
     const [analysisIndex, setAnalysisIndex] = useState(0)
     const [pendingStartQuarter, setPendingStartQuarter] = useState(null)
 
@@ -110,7 +109,6 @@ export function useGamePlays({
         setPlays([])
         setCurrentPlayId(null)
         setAnalysisEnabled(false)
-        setAnalysisRunning(false)
         setAnalysisIndex(0)
         setStatus({ watching: false, lastError: null, game: null })
         explanationByPlayIdRef.current = new Map()
@@ -244,30 +242,12 @@ export function useGamePlays({
         const idx = plays.findIndex((p) => Number(p?.quarter) === Number(pendingStartQuarter))
         if (idx < 0) return
         setAnalysisIndex(idx)
-        setAnalysisRunning(true)
         setPendingStartQuarter(null)
     }, [analysisEnabled, pendingStartQuarter, plays])
-
-    // Auto-advance analysis cursor while running
-    useInterval(
-        () => {
-            if (!analysisEnabled || !analysisRunning) return
-            setAnalysisIndex((idx) => {
-                const next = idx + 1
-                if (next >= plays.length) {
-                    setAnalysisRunning(false)
-                    return idx
-                }
-                return next
-            })
-        },
-        analysisEnabled && analysisRunning ? 2200 : null
-    )
 
     const restartAnalysis = useCallback(() => {
         setAnalysisEnabled(true)
         setPendingStartQuarter(1)
-        setAnalysisRunning(false)
     }, [])
 
     const startAtQuarter = useCallback(
@@ -279,10 +259,8 @@ export function useGamePlays({
             if (idx >= 0) {
                 setPendingStartQuarter(null)
                 setAnalysisIndex(idx)
-                setAnalysisRunning(true)
             } else {
                 setPendingStartQuarter(quarter)
-                setAnalysisRunning(false)
             }
         },
         [plays]
@@ -293,13 +271,54 @@ export function useGamePlays({
             const index = plays.findIndex((play) => play.id === playId)
             if (index < 0) return
             setAnalysisEnabled(true)
-            setAnalysisRunning(false)
             setPendingStartQuarter(null)
             setAnalysisIndex(index)
             setCurrentPlayId(playId)
         },
         [plays]
     )
+
+    const pausePlayback = useCallback(() => {
+        if (!plays.length) return
+        const currentIndex = plays.findIndex((play) => play.id === currentPlayId)
+        setPendingStartQuarter(null)
+        setAnalysisIndex(currentIndex >= 0 ? currentIndex : plays.length - 1)
+        setAnalysisEnabled(true)
+    }, [currentPlayId, plays])
+
+    const stepPrevious = useCallback(() => {
+        if (!plays.length) return
+        const currentIndex = plays.findIndex((play) => play.id === currentPlayId)
+        const startingIndex = analysisEnabled
+            ? analysisIndex
+            : currentIndex >= 0
+              ? currentIndex
+              : plays.length - 1
+        setPendingStartQuarter(null)
+        setAnalysisIndex(Math.max(0, startingIndex - 1))
+        setAnalysisEnabled(true)
+    }, [analysisEnabled, analysisIndex, currentPlayId, plays])
+
+    const stepNext = useCallback(() => {
+        if (!plays.length) return
+        const currentIndex = plays.findIndex((play) => play.id === currentPlayId)
+        const startingIndex = analysisEnabled
+            ? analysisIndex
+            : currentIndex >= 0
+              ? currentIndex
+              : plays.length - 1
+        setPendingStartQuarter(null)
+        setAnalysisIndex(Math.min(plays.length - 1, startingIndex + 1))
+        setAnalysisEnabled(true)
+    }, [analysisEnabled, analysisIndex, currentPlayId, plays])
+
+    const resumeLive = useCallback(() => {
+        setPendingStartQuarter(null)
+        setAnalysisEnabled(false)
+        const latest = plays[plays.length - 1]
+        setAnalysisIndex(Math.max(0, plays.length - 1))
+        setCurrentPlayId(latest?.id || null)
+    }, [plays])
 
     const currentPlay = useMemo(() => {
         if (!currentPlayId) return null
@@ -358,6 +377,10 @@ export function useGamePlays({
         maybeExplain()
     }, [audience, currentPlay, plays, sessionId])
 
+    const playbackIndex = plays.length
+        ? Math.max(0, Math.min(analysisEnabled ? analysisIndex : plays.length - 1, plays.length - 1))
+        : 0
+
     return {
         eventId,
         setEventId,
@@ -368,10 +391,20 @@ export function useGamePlays({
         explanation,
         analysis: {
             enabled: analysisEnabled,
-            running: analysisRunning,
+            index: playbackIndex,
+            total: plays.length,
+            canPrevious: plays.length > 0 && playbackIndex > 0,
+            canNext: plays.length > 0 && playbackIndex < plays.length - 1,
+            unseenCount: analysisEnabled
+                ? Math.max(0, plays.length - playbackIndex - 1)
+                : 0,
         },
+        pausePlayback,
+        resumeLive,
         restartAnalysis,
         selectPlay,
         startAtQuarter,
+        stepNext,
+        stepPrevious,
     }
 }
