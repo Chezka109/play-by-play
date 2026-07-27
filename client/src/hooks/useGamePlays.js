@@ -2,11 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetchJson } from '../utils/api'
 import { useInterval } from './useInterval'
 
-const FALLBACK_EVENT_ID = '401772988'
-
 function getEventId() {
     const envId = import.meta.env.VITE_EVENT_ID
-    return String(envId || '').trim() || FALLBACK_EVENT_ID
+    return String(envId || '').trim()
 }
 
 function getStoredEventId() {
@@ -66,7 +64,7 @@ export function useGamePlays({
         return getStoredEventId() || getEventId()
     }, [])
 
-    const [eventId, setEventId] = useState(eventIdProp || defaultEventId)
+    const [eventId, setEventIdState] = useState(eventIdProp || defaultEventId)
     const [mode, setMode] = useState('live') // 'live' | 'mock'
     const [status, setStatus] = useState({ watching: false, lastError: null })
     const [plays, setPlays] = useState([])
@@ -82,6 +80,18 @@ export function useGamePlays({
 
     const explanationByPlayIdRef = useRef(new Map())
     const inFlightExplainRef = useRef(new Set())
+
+    const setEventId = useCallback((nextEventId) => {
+        const next = String(nextEventId || '').trim()
+        setEventIdState((previous) => {
+            if (previous && previous !== next) {
+                apiFetchJson(`/api/games/${encodeURIComponent(previous)}/watch`, {
+                    method: 'DELETE',
+                }).catch(() => {})
+            }
+            return next
+        })
+    }, [])
 
     // Allow external control of eventId (dropdown)
     useEffect(() => {
@@ -102,6 +112,7 @@ export function useGamePlays({
         setAnalysisEnabled(false)
         setAnalysisRunning(false)
         setAnalysisIndex(0)
+        setStatus({ watching: false, lastError: null, game: null })
         explanationByPlayIdRef.current = new Map()
         inFlightExplainRef.current = new Set()
         setExplanationVersion((version) => version + 1)
@@ -135,6 +146,10 @@ export function useGamePlays({
     }, [effectiveLimit])
 
     const ensureWatching = useCallback(async () => {
+        if (!eventId) {
+            setStatus({ watching: false, lastError: null, game: null })
+            return
+        }
         try {
             await apiFetchJson(`/api/games/${encodeURIComponent(eventId)}/watch`, {
                 method: 'POST',
@@ -151,6 +166,7 @@ export function useGamePlays({
     }, [eventId])
 
     const pollOnce = useCallback(async () => {
+        if (!eventId) return
         if (mode === 'mock') {
             const data = await apiFetchJson('/api/mock/plays')
             const incoming = data?.plays || []
@@ -178,7 +194,14 @@ export function useGamePlays({
                     setCurrentPlayId(latest?.id || null)
                 }
             }
-            setStatus((s) => ({ ...s, lastError: null }))
+            setStatus((currentStatus) => ({
+                ...currentStatus,
+                watching: true,
+                lastError: data?.state?.lastError || null,
+                game: data?.state?.game || currentStatus.game || null,
+                lastPollAt: data?.state?.lastPollAt || null,
+                nextPollAt: data?.state?.nextPollAt || null,
+            }))
         } catch (err) {
             setStatus((s) => ({ ...s, lastError: String(err?.message || err) }))
         }
@@ -265,6 +288,19 @@ export function useGamePlays({
         [plays]
     )
 
+    const selectPlay = useCallback(
+        (playId) => {
+            const index = plays.findIndex((play) => play.id === playId)
+            if (index < 0) return
+            setAnalysisEnabled(true)
+            setAnalysisRunning(false)
+            setPendingStartQuarter(null)
+            setAnalysisIndex(index)
+            setCurrentPlayId(playId)
+        },
+        [plays]
+    )
+
     const currentPlay = useMemo(() => {
         if (!currentPlayId) return null
         return plays.find((p) => p.id === currentPlayId) || null
@@ -335,6 +371,7 @@ export function useGamePlays({
             running: analysisRunning,
         },
         restartAnalysis,
+        selectPlay,
         startAtQuarter,
     }
 }

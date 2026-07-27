@@ -31,7 +31,7 @@ function createApp({ gameWatcher }) {
         });
     }
 
-    app.use('/health', healthRoutes);
+    app.use('/health', healthRoutes({ gameWatcher }));
     app.use('/api', explainRoutes);
     app.use('/api', gameRoutes({ gameWatcher }));
     app.use('/api', nflRoutes);

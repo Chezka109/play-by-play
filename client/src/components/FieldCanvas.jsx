@@ -1,229 +1,327 @@
 import { useEffect, useMemo, useRef } from 'react'
 
-function clamp(n, min, max) {
-    return Math.max(min, Math.min(max, n))
+function clamp(number, min, max) {
+    return Math.max(min, Math.min(max, number))
 }
 
-function getCssVar(name, fallback) {
-    const v = getComputedStyle(document.documentElement)
-        .getPropertyValue(name)
-        .trim()
-    return v || fallback
-}
-
-function drawField(ctx, { w, h, lineOfScrimmageX }) {
-    const fieldBg = getCssVar('--field-bg', '#0b3d2e')
-    const fieldLine = getCssVar('--field-line', 'rgba(255,255,255,0.2)')
-    const endzone = getCssVar('--field-endzone', 'rgba(255,255,255,0.08)')
-    const los = getCssVar('--field-los', 'rgba(255,255,255,0.65)')
-
-    ctx.clearRect(0, 0, w, h)
-
-    // Background
-    ctx.fillStyle = fieldBg
-    ctx.fillRect(0, 0, w, h)
-
-    // End zones (10 yards each of 120 total)
-    const endZoneW = w * (10 / 120)
-    ctx.fillStyle = endzone
-    ctx.fillRect(0, 0, endZoneW, h)
-    ctx.fillRect(w - endZoneW, 0, endZoneW, h)
-
-    // Yard lines (every 10 yards across 120)
-    ctx.strokeStyle = fieldLine
-    ctx.lineWidth = 1
-    ctx.beginPath()
-    for (let i = 0; i <= 12; i++) {
-        const x = (w * i) / 12
-        ctx.moveTo(x, 0)
-        ctx.lineTo(x, h)
-    }
-    ctx.stroke()
-
-    // Line of scrimmage
-    ctx.strokeStyle = los
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(lineOfScrimmageX, 0)
-    ctx.lineTo(lineOfScrimmageX, h)
-    ctx.stroke()
-}
-
-function drawCircle(ctx, { x, y, r, fill }) {
-    ctx.fillStyle = fill
-    ctx.beginPath()
-    ctx.arc(x, y, r, 0, Math.PI * 2)
-    ctx.fill()
-}
-
-function drawBallPath(ctx, { x1, y1, x2, y2, t }) {
-    const ball = getCssVar('--field-ball', '#facc15')
-    ctx.strokeStyle = ball
-    ctx.lineWidth = 3
-    ctx.lineCap = 'round'
-
-    const mx = x1 + (x2 - x1) * t
-    const my = y1 + (y2 - y1) * t
-
-    ctx.beginPath()
-    ctx.moveTo(x1, y1)
-    ctx.lineTo(mx, my)
-    ctx.stroke()
+function cssVar(name, fallback) {
+    return (
+        getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+        fallback
+    )
 }
 
 function inferScene(play) {
     const parsed = play?.parsed || {}
-    const yards = Number.isFinite(parsed?.yards) ? parsed.yards : 0
-    const direction = parsed?.direction || 'middle'
-    const type = parsed?.type || 'unknown'
+    const yards = Number.isFinite(parsed.yards) ? parsed.yards : 0
+    const yardLineValue = Number(play?.yardLine)
 
-    // If yardLine is 0-100 from ESPN, map to the middle 100 yards inside a 120-yard canvas.
-    const yl = Number(play?.yardLine)
-    const yardLine = Number.isFinite(yl) ? clamp(yl, 0, 100) : 50
+    return {
+        type: parsed.type || 'unknown',
+        direction: parsed.direction || 'middle',
+        yards,
+        yardLine: Number.isFinite(yardLineValue)
+            ? clamp(yardLineValue, 0, 100)
+            : 50,
+        distance: Number.isFinite(Number(play?.distance))
+            ? Number(play.distance)
+            : null,
+    }
+}
 
-    return { type, direction, yards, yardLine }
+function drawField(ctx, { width, height, lineOfScrimmageX, firstDownX }) {
+    const field = cssVar('--field-bg', '#174f38')
+    const stripe = cssVar('--field-stripe', 'rgba(255,255,255,.025)')
+    const fieldLine = cssVar('--field-line', 'rgba(255,255,255,.2)')
+    const endZone = cssVar('--field-endzone', 'rgba(7,27,20,.58)')
+
+    ctx.clearRect(0, 0, width, height)
+    ctx.fillStyle = field
+    ctx.fillRect(0, 0, width, height)
+
+    const endZoneWidth = width / 12
+    const playingWidth = width - endZoneWidth * 2
+
+    for (let yard = 0; yard < 100; yard += 10) {
+        if ((yard / 10) % 2 === 0) {
+            ctx.fillStyle = stripe
+            ctx.fillRect(
+                endZoneWidth + (yard / 100) * playingWidth,
+                0,
+                playingWidth / 10,
+                height
+            )
+        }
+    }
+
+    ctx.fillStyle = endZone
+    ctx.fillRect(0, 0, endZoneWidth, height)
+    ctx.fillRect(width - endZoneWidth, 0, endZoneWidth, height)
+
+    ctx.strokeStyle = fieldLine
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    for (let yard = 0; yard <= 100; yard += 10) {
+        const x = endZoneWidth + (yard / 100) * playingWidth
+        ctx.moveTo(x, 0)
+        ctx.lineTo(x, height)
+    }
+    for (let yard = 5; yard < 100; yard += 5) {
+        const x = endZoneWidth + (yard / 100) * playingWidth
+        for (const y of [height * 0.08, height * 0.39, height * 0.61, height * 0.92]) {
+            ctx.moveTo(x, y - 3)
+            ctx.lineTo(x, y + 3)
+        }
+    }
+    ctx.stroke()
+
+    ctx.fillStyle = 'rgba(255,255,255,.34)'
+    ctx.font = `700 ${Math.max(9, height * 0.045)}px ui-monospace, monospace`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    for (let yard = 10; yard < 100; yard += 10) {
+        const x = endZoneWidth + (yard / 100) * playingWidth
+        const label = yard <= 50 ? yard : 100 - yard
+        ctx.fillText(String(label), x, height * 0.16)
+        ctx.fillText(String(label), x, height * 0.84)
+    }
+
+    ctx.save()
+    ctx.translate(endZoneWidth / 2, height / 2)
+    ctx.rotate(-Math.PI / 2)
+    ctx.fillStyle = 'rgba(255,255,255,.28)'
+    ctx.font = `800 ${Math.max(8, height * 0.04)}px system-ui`
+    ctx.letterSpacing = '2px'
+    ctx.fillText('END ZONE', 0, 0)
+    ctx.restore()
+
+    ctx.save()
+    ctx.translate(width - endZoneWidth / 2, height / 2)
+    ctx.rotate(Math.PI / 2)
+    ctx.fillStyle = 'rgba(255,255,255,.28)'
+    ctx.font = `800 ${Math.max(8, height * 0.04)}px system-ui`
+    ctx.fillText('END ZONE', 0, 0)
+    ctx.restore()
+
+    if (firstDownX != null) {
+        ctx.strokeStyle = cssVar('--field-first-down', '#facc15')
+        ctx.lineWidth = 2
+        ctx.setLineDash([6, 5])
+        ctx.beginPath()
+        ctx.moveTo(firstDownX, 0)
+        ctx.lineTo(firstDownX, height)
+        ctx.stroke()
+        ctx.setLineDash([])
+    }
+
+    ctx.strokeStyle = cssVar('--field-los', '#60a5fa')
+    ctx.lineWidth = 3
+    ctx.beginPath()
+    ctx.moveTo(lineOfScrimmageX, 0)
+    ctx.lineTo(lineOfScrimmageX, height)
+    ctx.stroke()
+
+    ctx.strokeStyle = 'rgba(255,255,255,.32)'
+    ctx.lineWidth = 1
+    ctx.strokeRect(0.5, 0.5, width - 1, height - 1)
+}
+
+function drawPlayer(ctx, { x, y, radius, fill, outline = 'rgba(255,255,255,.75)' }) {
+    ctx.fillStyle = fill
+    ctx.strokeStyle = outline
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.arc(x, y, radius, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.stroke()
+}
+
+function drawPath(ctx, { start, end, progress }) {
+    const currentX = start.x + (end.x - start.x) * progress
+    const currentY = start.y + (end.y - start.y) * progress
+    ctx.strokeStyle = cssVar('--field-ball', '#facc15')
+    ctx.lineWidth = 3
+    ctx.lineCap = 'round'
+    ctx.setLineDash([6, 5])
+    ctx.beginPath()
+    ctx.moveTo(start.x, start.y)
+    ctx.lineTo(currentX, currentY)
+    ctx.stroke()
+    ctx.setLineDash([])
 }
 
 export function FieldCanvas({ play }) {
     const canvasRef = useRef(null)
-    const animRef = useRef({ raf: null, startTs: null, playId: null })
-
     const scene = useMemo(() => inferScene(play), [play])
 
     useEffect(() => {
         const canvas = canvasRef.current
-        if (!canvas) return
+        const context = canvas?.getContext('2d')
+        if (!canvas || !context) return
 
-        const ctx = canvas.getContext('2d')
-        if (!ctx) return
+        let animationFrame = null
+        let startTime = null
+        let dimensions = { width: 1, height: 1 }
+        let disposed = false
 
-        const dpr = window.devicePixelRatio || 1
-
-        function resizeToContainer() {
+        function resize() {
             const rect = canvas.getBoundingClientRect()
-            const w = Math.max(1, Math.floor(rect.width))
-            const h = Math.max(1, Math.floor(rect.height))
-            canvas.width = Math.floor(w * dpr)
-            canvas.height = Math.floor(h * dpr)
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-            return { w, h }
+            const width = Math.max(1, Math.floor(rect.width))
+            const height = Math.max(1, Math.floor(rect.height))
+            const density = window.devicePixelRatio || 1
+            canvas.width = Math.floor(width * density)
+            canvas.height = Math.floor(height * density)
+            context.setTransform(density, 0, 0, density, 0, 0)
+            dimensions = { width, height }
         }
 
-        const { w, h } = resizeToContainer()
+        function geometry() {
+            const { width, height } = dimensions
+            const endZoneWidth = width / 12
+            const playingWidth = width - endZoneWidth * 2
+            const lineOfScrimmageX =
+                endZoneWidth + (scene.yardLine / 100) * playingWidth
+            const firstDownX =
+                scene.distance == null
+                    ? null
+                    : clamp(
+                          lineOfScrimmageX + (scene.distance / 100) * playingWidth,
+                          endZoneWidth,
+                          endZoneWidth + playingWidth
+                      )
+            return { width, height, endZoneWidth, playingWidth, lineOfScrimmageX, firstDownX }
+        }
 
-        const endZoneW = w * (10 / 120)
-        const fieldStartX = endZoneW
-        const fieldW = w - endZoneW * 2
+        function render(progress = 1) {
+            const {
+                width,
+                height,
+                endZoneWidth,
+                playingWidth,
+                lineOfScrimmageX,
+                firstDownX,
+            } = geometry()
+            drawField(context, { width, height, lineOfScrimmageX, firstDownX })
 
-        const lineOfScrimmageX = fieldStartX + (scene.yardLine / 100) * fieldW
+            if (!play) return
 
-        const offense = getCssVar('--field-offense', 'rgba(255,255,255,0.9)')
-        const defense = getCssVar('--field-defense', 'rgba(255,255,255,0.35)')
+            const offense = cssVar('--field-offense', '#f8fafc')
+            const defense = cssVar('--field-defense', '#fb7185')
+            const radius = clamp(height * 0.025, 5, 9)
+            const quarterback = {
+                x: clamp(lineOfScrimmageX - playingWidth * 0.035, endZoneWidth, width - endZoneWidth),
+                y: height * 0.5,
+            }
+            const runner = {
+                x: clamp(lineOfScrimmageX - playingWidth * 0.025, endZoneWidth, width - endZoneWidth),
+                y: height * 0.68,
+            }
+            const receiver = {
+                x: clamp(lineOfScrimmageX + playingWidth * 0.075, endZoneWidth, width - endZoneWidth),
+                y:
+                    scene.direction === 'left'
+                        ? height * 0.3
+                        : scene.direction === 'right'
+                          ? height * 0.7
+                          : height * 0.48,
+            }
+            const endX = clamp(
+                lineOfScrimmageX + (scene.yards / 100) * playingWidth,
+                endZoneWidth,
+                endZoneWidth + playingWidth
+            )
 
-        // Starting positions (simple, approximate)
-        const qb = { x: lineOfScrimmageX - fieldW * 0.03, y: h * 0.55 }
-        const rb = { x: lineOfScrimmageX - fieldW * 0.02, y: h * 0.70 }
-
-        const wrY = scene.direction === 'left' ? h * 0.35 : scene.direction === 'right' ? h * 0.75 : h * 0.50
-        const wr = { x: lineOfScrimmageX + fieldW * 0.07, y: wrY }
-
-        const def1 = { x: lineOfScrimmageX + fieldW * 0.02, y: h * 0.45 }
-        const def2 = { x: lineOfScrimmageX + fieldW * 0.02, y: h * 0.65 }
-
-        // End position based on yards (assume offense moves to the right)
-        const endX = clamp(lineOfScrimmageX + (scene.yards / 100) * fieldW, fieldStartX, fieldStartX + fieldW)
-
-        const durationMs = 1400
-
-        function renderFrame(ts) {
-            if (!animRef.current.startTs) animRef.current.startTs = ts
-            const tRaw = (ts - animRef.current.startTs) / durationMs
-            const t = clamp(tRaw, 0, 1)
-            const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
-
-            drawField(ctx, { w, h, lineOfScrimmageX })
-
-            // Defense stays put
-            drawCircle(ctx, { x: def1.x, y: def1.y, r: 7, fill: defense })
-            drawCircle(ctx, { x: def2.x, y: def2.y, r: 7, fill: defense })
-
-            if (!play) {
-                animRef.current.raf = requestAnimationFrame(renderFrame)
-                return
+            for (const y of [0.28, 0.42, 0.58, 0.72]) {
+                drawPlayer(context, {
+                    x: lineOfScrimmageX + playingWidth * 0.018,
+                    y: height * y,
+                    radius: radius * 0.82,
+                    fill: defense,
+                })
             }
 
-            if (scene.type === 'pass' || scene.type === 'interception' || scene.type === 'incomplete') {
-                // QB stays mostly in place
-                drawCircle(ctx, { x: qb.x, y: qb.y, r: 8, fill: offense })
-                drawCircle(ctx, { x: rb.x, y: rb.y, r: 7, fill: offense })
+            const eased =
+                progress < 0.5
+                    ? 2 * progress * progress
+                    : 1 - Math.pow(-2 * progress + 2, 2) / 2
 
-                // Receiver runs forward a bit for completed pass
-                const wrRunX = scene.type === 'incomplete' ? wr.x : clamp(endX, wr.x, fieldStartX + fieldW)
-                const wrX = wr.x + (wrRunX - wr.x) * ease
-                const wrY2 = wr.y
-
-                drawCircle(ctx, { x: wrX, y: wrY2, r: 8, fill: offense })
-
-                // Ball path: QB -> WR (first half), then along WR run (second half) for completed
-                if (t <= 0.55) {
-                    const t1 = clamp(t / 0.55, 0, 1)
-                    drawBallPath(ctx, { x1: qb.x, y1: qb.y, x2: wr.x, y2: wr.y, t: t1 })
-                } else if (scene.type !== 'incomplete') {
-                    const t2 = clamp((t - 0.55) / 0.45, 0, 1)
-                    drawBallPath(ctx, { x1: wr.x, y1: wr.y, x2: wrRunX, y2: wr.y, t: t2 })
-                } else {
-                    drawBallPath(ctx, { x1: qb.x, y1: qb.y, x2: wr.x, y2: wr.y, t: 1 })
+            if (['pass', 'interception', 'incomplete'].includes(scene.type)) {
+                const target = {
+                    x: scene.type === 'incomplete' ? receiver.x : Math.max(receiver.x, endX),
+                    y: receiver.y,
                 }
+                const receiverPosition = {
+                    x: receiver.x + (target.x - receiver.x) * eased,
+                    y: receiver.y,
+                }
+                drawPlayer(context, { ...quarterback, radius, fill: offense })
+                drawPlayer(context, { ...runner, radius: radius * 0.85, fill: offense })
+                drawPlayer(context, { ...receiverPosition, radius, fill: offense })
+                drawPath(context, {
+                    start: quarterback,
+                    end: receiver,
+                    progress: clamp(progress / 0.68, 0, 1),
+                })
             } else {
-                // Rush / sack / unknown: move ball-carrier forward (or backward for negative)
-                const isSack = scene.type === 'sack'
-                const carrierStart = isSack ? qb : rb
-                const carrierEndX = endX
-                const carrierX = carrierStart.x + (carrierEndX - carrierStart.x) * ease
-                const carrierY = carrierStart.y
-
-                drawCircle(ctx, { x: qb.x, y: qb.y, r: 8, fill: offense })
-                drawCircle(ctx, { x: rb.x, y: rb.y, r: 7, fill: offense })
-                drawCircle(ctx, { x: carrierX, y: carrierY, r: 9, fill: offense })
-
-                drawBallPath(ctx, { x1: carrierStart.x, y1: carrierStart.y, x2: carrierEndX, y2: carrierStart.y, t: ease })
-            }
-
-            if (t < 1) {
-                animRef.current.raf = requestAnimationFrame(renderFrame)
-            } else {
-                // Reset field after animation completes
-                setTimeout(() => {
-                    const { w: w2, h: h2 } = resizeToContainer()
-                    drawField(ctx, { w: w2, h: h2, lineOfScrimmageX })
-                }, 400)
+                const carrierStart = scene.type === 'sack' ? quarterback : runner
+                const carrierEnd = { x: endX, y: carrierStart.y }
+                const carrier = {
+                    x: carrierStart.x + (carrierEnd.x - carrierStart.x) * eased,
+                    y: carrierStart.y,
+                }
+                drawPlayer(context, { ...quarterback, radius, fill: offense })
+                drawPlayer(context, { ...runner, radius: radius * 0.85, fill: offense })
+                drawPlayer(context, { ...carrier, radius: radius * 1.08, fill: offense })
+                drawPath(context, {
+                    start: carrierStart,
+                    end: carrierEnd,
+                    progress: eased,
+                })
             }
         }
 
-        // Cancel any previous animation and start a new one when play changes
-        if (animRef.current.raf) cancelAnimationFrame(animRef.current.raf)
-        animRef.current.startTs = null
-        animRef.current.playId = play?.id || null
-
-        drawField(ctx, { w, h, lineOfScrimmageX })
-        animRef.current.raf = requestAnimationFrame(renderFrame)
-
-        const onResize = () => {
-            const { w: w2, h: h2 } = resizeToContainer()
-            const losX2 = fieldStartX + (scene.yardLine / 100) * (w2 - (w2 * (10 / 120)) * 2)
-            drawField(ctx, { w: w2, h: h2, lineOfScrimmageX: losX2 })
+        function animate(timestamp) {
+            if (disposed) return
+            if (startTime == null) startTime = timestamp
+            const progress = clamp((timestamp - startTime) / 1350, 0, 1)
+            render(progress)
+            if (progress < 1) animationFrame = requestAnimationFrame(animate)
         }
 
-        window.addEventListener('resize', onResize)
+        resize()
+        render(play ? 0 : 1)
+        if (play) animationFrame = requestAnimationFrame(animate)
+
+        const observer = new ResizeObserver(() => {
+            resize()
+            render(1)
+        })
+        observer.observe(canvas)
+
         return () => {
-            window.removeEventListener('resize', onResize)
-            if (animRef.current.raf) cancelAnimationFrame(animRef.current.raf)
+            disposed = true
+            observer.disconnect()
+            if (animationFrame) cancelAnimationFrame(animationFrame)
         }
     }, [play, scene])
 
     return (
-        <div className="w-full h-64 sm:h-72 md:h-80 rounded-xl overflow-hidden border border-white/10 bg-neutral-950">
-            <canvas ref={canvasRef} className="w-full h-full" />
-        </div>
+        <figure className="overflow-hidden rounded-[1.5rem] border border-emerald-950/20 bg-emerald-950 shadow-[0_18px_60px_rgba(7,27,20,0.16)]">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3 text-[0.65rem] font-bold uppercase tracking-[0.14em] text-emerald-100/65">
+                <span>Play visualizer</span>
+                <span className="flex items-center gap-3">
+                    <span><i className="mr-1 inline-block size-2 rounded-full bg-slate-50" /> offense</span>
+                    <span><i className="mr-1 inline-block size-2 rounded-full bg-rose-400" /> defense</span>
+                </span>
+            </div>
+            <div className="h-56 w-full sm:h-64 md:h-72">
+                <canvas
+                    ref={canvasRef}
+                    className="size-full"
+                    role="img"
+                    aria-label={play ? `Animated diagram for: ${play.text}` : 'Empty football field'}
+                />
+            </div>
+        </figure>
     )
 }

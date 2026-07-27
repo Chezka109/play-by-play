@@ -14,6 +14,16 @@ async function main() {
         console.log(`Server listening on http://localhost:${env.port}`);
     });
 
+    function shutdown(signal) {
+        console.log(`${signal} received; shutting down`);
+        gameWatcher.stopAll();
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(1), 10000).unref();
+    }
+
+    process.once('SIGTERM', () => shutdown('SIGTERM'));
+    process.once('SIGINT', () => shutdown('SIGINT'));
+
     server.on('error', (err) => {
         const code = err?.code ? String(err.code) : '';
         if (code === 'EADDRINUSE') {

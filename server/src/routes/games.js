@@ -14,11 +14,11 @@ function gameRoutes({ gameWatcher }) {
     router.post('/games/:eventId/watch', async (req, res, next) => {
         try {
             const { eventId } = req.params;
-            const pollIntervalMs = toInt(req.body?.pollIntervalMs, undefined);
+            if (!/^\d{6,20}$/.test(eventId)) {
+                return res.status(400).json({ error: 'Invalid ESPN event ID' });
+            }
 
-            const state = await gameWatcher.watch(eventId, {
-                pollIntervalMs,
-            });
+            const state = await gameWatcher.watch(eventId);
 
             res.json({ ok: true, eventId, state: state.getPublicState() });
         } catch (err) {
@@ -55,7 +55,12 @@ function gameRoutes({ gameWatcher }) {
         const limit = Math.min(1000, Math.max(1, toInt(req.query.limit, 50)));
         const plays = state.getPlays({ limit });
 
-        res.json({ ok: true, eventId, plays });
+        res.json({
+            ok: true,
+            eventId,
+            plays,
+            state: state.getPublicState(),
+        });
     });
 
     router.get('/mock/plays', (req, res) => {

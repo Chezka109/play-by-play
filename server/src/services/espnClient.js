@@ -5,12 +5,51 @@ async function fetchGameSummary(eventId) {
     const url = `${env.espnSummaryBaseUrl}${encodeURIComponent(eventId)}`;
     const resp = await axios.get(url, {
         headers: {
+            Accept: 'application/json',
             'Accept-Encoding': 'gzip, deflate, br',
-            'User-Agent': 'play-by-play/0.1',
+            'User-Agent': 'play-by-play/1.0',
         },
-        timeout: 8000,
+        timeout: env.providerTimeoutMs,
     });
     return resp.data;
+}
+
+function mapGameContext(summaryJson) {
+    const header = summaryJson?.header || {};
+    const competition = toArray(header?.competitions)[0] || {};
+    const status = competition?.status || {};
+    const statusType = status?.type || {};
+    const competitors = toArray(competition?.competitors).map((competitor) => ({
+        id: competitor?.team?.id ? String(competitor.team.id) : null,
+        abbreviation: competitor?.team?.abbreviation ?? null,
+        displayName: competitor?.team?.displayName ?? competitor?.team?.name ?? null,
+        logo: competitor?.team?.logos?.[0]?.href ?? competitor?.team?.logo ?? null,
+        homeAway: competitor?.homeAway ?? null,
+        score: competitor?.score ?? null,
+    }));
+
+    return {
+        id: String(header?.id ?? competition?.id ?? ''),
+        name: competition?.description ?? header?.gameNote ?? null,
+        shortName: competition?.shortName ?? null,
+        date: competition?.date ?? null,
+        seasonYear: header?.season?.year ?? null,
+        seasonType: header?.season?.type ?? null,
+        week: header?.week ?? null,
+        status: {
+            state: statusType?.state ?? null,
+            name: statusType?.name ?? null,
+            detail: statusType?.detail ?? statusType?.shortDetail ?? null,
+            shortDetail: statusType?.shortDetail ?? statusType?.detail ?? null,
+            completed: Boolean(statusType?.completed),
+            clock: status?.displayClock ?? null,
+            period: status?.period ?? null,
+        },
+        teams: {
+            home: competitors.find((team) => team.homeAway === 'home') || null,
+            away: competitors.find((team) => team.homeAway === 'away') || null,
+        },
+    };
 }
 
 function toArray(value) {
@@ -64,4 +103,4 @@ function mapPlay(p) {
     };
 }
 
-module.exports = { fetchGameSummary, extractPlays, mapPlay };
+module.exports = { fetchGameSummary, extractPlays, mapGameContext, mapPlay };

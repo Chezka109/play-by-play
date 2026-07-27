@@ -1,9 +1,24 @@
 const express = require('express');
+const { env } = require('../config/env');
 
-const router = express.Router();
+function healthRoutes({ gameWatcher }) {
+    const router = express.Router();
 
-router.get('/', (req, res) => {
-    res.json({ ok: true, ts: Date.now() });
-});
+    router.get('/', (req, res) => {
+        res.json({
+            ok: true,
+            timestamp: new Date().toISOString(),
+            uptimeSeconds: Math.round(process.uptime()),
+            integrations: {
+                scoreboard: 'espn',
+                explanations: env.openaiApiKey ? 'openai' : 'local-fallback',
+                model: env.openaiApiKey ? env.openaiModel : null,
+            },
+            watcher: gameWatcher.getDiagnostics(),
+        });
+    });
 
-module.exports = router;
+    return router;
+}
+
+module.exports = healthRoutes;

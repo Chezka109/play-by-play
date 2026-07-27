@@ -10,15 +10,34 @@ body {
 
 body {
   margin: 0;
+  min-width: 320px;
+  background: #f3f1eb;
+  color: #1c1917;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Canvas field colors (used by the Canvas API component) */
 :root {
-  --field-bg: #0b3d2e;
+  --field-bg: #174f38;
+  --field-stripe: rgba(255, 255, 255, 0.035);
   --field-line: rgba(255, 255, 255, 0.2);
-  --field-los: rgba(255, 255, 255, 0.65);
-  --field-endzone: rgba(255, 255, 255, 0.08);
+  --field-los: #60a5fa;
+  --field-first-down: #facc15;
+  --field-endzone: rgba(7, 27, 20, 0.58);
   --field-ball: #facc15;
-  --field-offense: rgba(255, 255, 255, 0.9);
-  --field-defense: rgba(255, 255, 255, 0.35);
+  --field-offense: #f8fafc;
+  --field-defense: #fb7185;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(5, 150, 105, 0.2);
 }
