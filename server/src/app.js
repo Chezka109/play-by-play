@@ -11,7 +11,7 @@ const gameRoutes = require('./routes/games');
 const explainRoutes = require('./routes/explain');
 const nflRoutes = require('./routes/nfl');
 
-function createApp({ gameWatcher }) {
+function createApp({ gameWatcher, pollOnRead = false }) {
     const app = express();
 
     const serveClient = String(process.env.SERVE_CLIENT || '').toLowerCase() === 'true';
@@ -34,7 +34,7 @@ function createApp({ gameWatcher }) {
 
     app.use('/health', healthRoutes({ gameWatcher }));
     app.use('/api', explainRoutes);
-    app.use('/api', gameRoutes({ gameWatcher }));
+    app.use('/api', gameRoutes({ gameWatcher, pollOnRead }));
     app.use('/api', nflRoutes);
 
     app.get('/api/info', (req, res) => {
