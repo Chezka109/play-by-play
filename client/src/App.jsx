@@ -3,6 +3,7 @@ import { CurrentPlay } from './components/CurrentPlay'
 import { FieldCanvas } from './components/FieldCanvas'
 import { GamePicker } from './components/GamePicker'
 import { MatchupCard } from './components/MatchupCard'
+import { PlaybackControls } from './components/PlaybackControls'
 import { PlayList } from './components/PlayList'
 import { useGamePlays } from './hooks/useGamePlays'
 import { useNflGames } from './hooks/useNflGames'
@@ -21,7 +22,7 @@ function QuarterControls({ plays, onRestart, onStartAtQuarter }) {
         disabled={plays.length === 0}
         type="button"
       >
-        Replay game
+        First play
       </button>
       {[1, 2, 3, 4].map((quarter) => (
         <button
@@ -30,7 +31,7 @@ function QuarterControls({ plays, onRestart, onStartAtQuarter }) {
           onClick={() => onStartAtQuarter(quarter)}
           disabled={!availableQuarters.has(quarter)}
           type="button"
-          title={`Replay from quarter ${quarter}`}
+          title={`Jump to the first play of quarter ${quarter}`}
         >
           Q{quarter}
         </button>
@@ -51,9 +52,14 @@ function App() {
     plays,
     currentPlay,
     explanation,
+    analysis,
+    pausePlayback,
+    resumeLive,
     restartAnalysis,
     selectPlay,
     startAtQuarter,
+    stepNext,
+    stepPrevious,
   } = useGamePlays({
     pollMs: 5000,
     limit: 80,
@@ -131,7 +137,13 @@ function App() {
               <span className={`size-1.5 rounded-full ${
                 status.lastError || games.lastError ? 'bg-amber-300' : 'bg-emerald-300'
               }`} />
-              {selectedIsLive ? 'Updating live' : status.lastError || games.lastError ? 'Feed retrying' : 'Feed ready'}
+              {analysis.enabled
+                ? 'Display paused'
+                : selectedIsLive
+                  ? 'Updating live'
+                  : status.lastError || games.lastError
+                    ? 'Feed retrying'
+                    : 'Feed ready'}
             </span>
           </div>
         </div>
@@ -181,7 +193,17 @@ function App() {
           </div>
         </section>
 
-        <div className="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white/70 px-4 py-3">
+        <div className="mt-6">
+          <PlaybackControls
+            playback={analysis}
+            onPause={pausePlayback}
+            onPrevious={stepPrevious}
+            onNext={stepNext}
+            onResumeLive={resumeLive}
+          />
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-stone-200 bg-white/70 px-4 py-3">
           <QuarterControls
             plays={plays}
             onRestart={restartAnalysis}

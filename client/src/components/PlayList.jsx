@@ -12,7 +12,7 @@ export function PlayList({ plays, currentPlayId, onSelectPlay }) {
             <div className="flex items-end justify-between border-b border-stone-200 px-4 py-4">
                 <div>
                     <h2 className="text-sm font-bold text-stone-950">Play timeline</h2>
-                    <p className="mt-0.5 text-xs text-stone-500">Newest first · select any play</p>
+                    <p className="mt-0.5 text-xs text-stone-500">Newest first · selecting pauses the display</p>
                 </div>
                 <span className="rounded-full bg-stone-100 px-2 py-1 text-[0.65rem] font-bold text-stone-500">
                     {items.length}
