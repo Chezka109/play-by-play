@@ -74,6 +74,24 @@ This runs the server tests, client lint, and production build. Tests cover play 
 
 ## Production
 
+### Netlify
+
+The repository includes a Netlify build configuration that publishes the Vite
+client from `client/dist` and runs the Express API through a Netlify Function.
+Live game reads refresh directly from the provider, so they remain reliable
+across serverless cold starts.
+
+Deploy the linked site with:
+
+```bash
+netlify deploy --build --prod
+```
+
+Set `OPENAI_API_KEY` in Netlify's environment variables only if model-backed
+explanations are desired. Without it, the local football analyst is used.
+
+### Container
+
 Build and run the single-server image:
 
 ```bash
