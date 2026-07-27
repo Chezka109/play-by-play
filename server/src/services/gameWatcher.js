@@ -82,9 +82,15 @@ function createGameWatcher() {
                 // Serial to be nice to rate limits.
                 for (const play of playsToExplain) {
                     if (!play.text) continue;
-                    const exp = await explanationService.explain(play.text);
-                    play.explanation = exp.text;
-                    play.explanationMeta = { source: exp.source, cached: exp.cached };
+                    const recentPlays = state
+                        .getPlays({ limit: 6 })
+                        .filter((item) => item.id !== play.id);
+                    const exp = await explanationService.explain({
+                        play,
+                        recentPlays,
+                    });
+                    play.explanation = exp;
+                    play.explanationMeta = exp.meta;
                 }
             }
 

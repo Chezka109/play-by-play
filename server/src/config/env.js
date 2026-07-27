@@ -42,7 +42,20 @@ const env = {
         fallback: 20000,
     }),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
-    openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    openaiModel: process.env.OPENAI_MODEL || 'gpt-5.6-sol',
+    openaiReasoningEffort: process.env.OPENAI_REASONING_EFFORT || 'low',
+    openaiTimeoutMs: requireNumber(process.env.OPENAI_TIMEOUT_MS, {
+        name: 'OPENAI_TIMEOUT_MS',
+        fallback: 15000,
+    }),
+    openaiMaxOutputTokens: requireNumber(process.env.OPENAI_MAX_OUTPUT_TOKENS, {
+        name: 'OPENAI_MAX_OUTPUT_TOKENS',
+        fallback: 1200,
+    }),
+    openaiMaxToolRounds: requireNumber(process.env.OPENAI_MAX_TOOL_ROUNDS, {
+        name: 'OPENAI_MAX_TOOL_ROUNDS',
+        fallback: 2,
+    }),
     explainOnIngest: requireBoolean(process.env.EXPLAIN_ON_INGEST, {
         fallback: true,
     }),

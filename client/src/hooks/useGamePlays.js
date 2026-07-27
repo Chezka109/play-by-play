@@ -27,7 +27,41 @@ function setStoredEventId(eventId) {
     }
 }
 
-export function useGamePlays({ eventId: eventIdProp, pollMs = 5000, limit = 60 } = {}) {
+function getSessionId() {
+    try {
+        const stored = localStorage.getItem('playByPlay.sessionId')
+        if (stored) return stored
+        const value = crypto.randomUUID()
+        localStorage.setItem('playByPlay.sessionId', value)
+        return value
+    } catch {
+        return ''
+    }
+}
+
+function toAgentPlay(play) {
+    if (!play) return null
+    return {
+        id: play.id,
+        text: play.text,
+        quarter: play.quarter,
+        clock: play.clock,
+        down: play.down,
+        distance: play.distance,
+        yardLine: play.yardLine,
+        possessionText: play.possessionText,
+        team: play.team,
+        typeText: play.typeText,
+        parsed: play.parsed,
+    }
+}
+
+export function useGamePlays({
+    eventId: eventIdProp,
+    pollMs = 5000,
+    limit = 60,
+    audience = 'rookie',
+} = {}) {
     const defaultEventId = useMemo(() => {
         return getStoredEventId() || getEventId()
     }, [])
@@ -37,6 +71,8 @@ export function useGamePlays({ eventId: eventIdProp, pollMs = 5000, limit = 60 }
     const [status, setStatus] = useState({ watching: false, lastError: null })
     const [plays, setPlays] = useState([])
     const [currentPlayId, setCurrentPlayId] = useState(null)
+    const [explanationVersion, setExplanationVersion] = useState(0)
+    const sessionId = useMemo(getSessionId, [])
 
     // Analysis playback: a cursor over the (chronological) play list
     const [analysisEnabled, setAnalysisEnabled] = useState(false)
@@ -68,6 +104,7 @@ export function useGamePlays({ eventId: eventIdProp, pollMs = 5000, limit = 60 }
         setAnalysisIndex(0)
         explanationByPlayIdRef.current = new Map()
         inFlightExplainRef.current = new Set()
+        setExplanationVersion((version) => version + 1)
         setMode('live')
     }, [eventId])
 
@@ -233,44 +270,57 @@ export function useGamePlays({ eventId: eventIdProp, pollMs = 5000, limit = 60 }
         return plays.find((p) => p.id === currentPlayId) || null
     }, [plays, currentPlayId])
 
-    const explanation = useMemo(() => {
-        if (!currentPlay?.id) return null
-        return (
-            currentPlay.explanation ||
-            explanationByPlayIdRef.current.get(currentPlay.id) ||
+    let explanation = null
+    if (currentPlay?.id) {
+        const key = `${currentPlay.id}:${audience}`
+        explanation = (
+            (audience === 'rookie' ? currentPlay.explanation : null) ||
+            explanationByPlayIdRef.current.get(key) ||
             null
         )
-    }, [currentPlay])
+    }
+    // This state is intentionally read so a ref-cache write refreshes the value above.
+    void explanationVersion
 
     useEffect(() => {
         async function maybeExplain() {
             if (!currentPlay?.id) return
-            if (currentPlay.explanation) return
-            if (explanationByPlayIdRef.current.has(currentPlay.id)) return
+            if (audience === 'rookie' && currentPlay.explanation) return
+            const key = `${currentPlay.id}:${audience}`
+            if (explanationByPlayIdRef.current.has(key)) return
             if (!currentPlay.text) return
-            if (inFlightExplainRef.current.has(currentPlay.id)) return
+            if (inFlightExplainRef.current.has(key)) return
 
-            inFlightExplainRef.current.add(currentPlay.id)
+            inFlightExplainRef.current.add(key)
             try {
+                const playIndex = plays.findIndex((play) => play.id === currentPlay.id)
+                const recentPlays =
+                    playIndex > 0
+                        ? plays.slice(Math.max(0, playIndex - 5), playIndex).map(toAgentPlay)
+                        : []
                 const data = await apiFetchJson('/api/explain-play', {
                     method: 'POST',
-                    body: { text: currentPlay.text },
+                    body: {
+                        play: toAgentPlay(currentPlay),
+                        recentPlays,
+                        audience,
+                        sessionId,
+                    },
                 })
-                const exp = data?.explanation?.text || null
+                const exp = data?.explanation || null
                 if (exp) {
-                    explanationByPlayIdRef.current.set(currentPlay.id, exp)
-                    // force rerender without changing play list shape
-                    setCurrentPlayId((id) => id)
+                    explanationByPlayIdRef.current.set(key, exp)
+                    setExplanationVersion((version) => version + 1)
                 }
             } catch (err) {
                 console.warn('Explain failed:', err)
             } finally {
-                inFlightExplainRef.current.delete(currentPlay.id)
+                inFlightExplainRef.current.delete(key)
             }
         }
 
         maybeExplain()
-    }, [currentPlay])
+    }, [audience, currentPlay, plays, sessionId])
 
     return {
         eventId,

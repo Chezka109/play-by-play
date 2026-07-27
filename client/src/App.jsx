@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { FieldCanvas } from './components/FieldCanvas'
 import { GamePicker } from './components/GamePicker'
 import { CurrentPlay } from './components/CurrentPlay'
@@ -6,6 +7,7 @@ import { useGamePlays } from './hooks/useGamePlays'
 import { useNflGames } from './hooks/useNflGames'
 
 function App() {
+  const [audience, setAudience] = useState('rookie')
   const games = useNflGames({ pollMs: 30000 })
 
   const {
@@ -21,6 +23,7 @@ function App() {
   } = useGamePlays({
     pollMs: 5000,
     limit: 60,
+    audience,
   })
 
   const selectedGame = games.byId.get(eventId) || null
@@ -63,6 +66,18 @@ function App() {
           />
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-300">
+              Explain for
+              <select
+                className="bg-transparent font-medium text-neutral-100 outline-none"
+                value={audience}
+                onChange={(event) => setAudience(event.target.value)}
+              >
+                <option className="bg-neutral-900" value="rookie">New fan</option>
+                <option className="bg-neutral-900" value="fan">Regular fan</option>
+                <option className="bg-neutral-900" value="coach">Film-room detail</option>
+              </select>
+            </label>
             <button
               className="rounded-lg border border-white/10 bg-neutral-900/40 px-3 py-2 text-xs text-neutral-100 hover:bg-white/5"
               onClick={restartAnalysis}
